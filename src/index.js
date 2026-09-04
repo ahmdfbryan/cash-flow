@@ -5,6 +5,7 @@ const config = require('./config');
 const sheets = require('./services/sheetsService');
 const scheduler = require('./services/reportScheduler');
 const notifier = require('./services/notifier');
+const saldoBoard = require('./services/saldoBoard');
 const { errorEmbed, baseEmbed } = require('./utils/embeds');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -19,7 +20,9 @@ for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) 
 client.once('ready', async () => {
   console.log(`✅ Bot login sebagai ${client.user.tag}`);
   notifier.attachClient(client);
+  saldoBoard.attachClient(client);
   await sheets.init();
+  await saldoBoard.init();
   scheduler.start(client);
 
   notifier.notifySystem({ embeds: [baseEmbed(0x57F287).setTitle('🟢 Bot Online').setDescription(`${client.user.tag} siap dipakai.\nSync Sheets: ${sheets.isReady() ? '✅ aktif' : '⚠️ nonaktif'}`)] });
