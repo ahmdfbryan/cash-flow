@@ -45,4 +45,14 @@ function balanceEmbed(wallets, total) {
   return embed;
 }
 
-module.exports = { COLORS, baseEmbed, successEmbed, errorEmbed, transactionEmbed, balanceEmbed, formatDate };
+function liveBalanceEmbed(wallets, total) {
+  const embed = baseEmbed(COLORS.info).setTitle('💰 Saldo Real-Time');
+  wallets.forEach(w => {
+    embed.addFields({ name: `${w.emoji} ${w.name}`, value: formatRupiah(w.balance), inline: true });
+  });
+  embed.addFields({ name: '\u200b', value: `**Total: ${formatRupiah(total)}**` });
+  embed.setFooter({ text: 'Update otomatis setiap ada transaksi' });
+  return embed;
+}
+
+module.exports = { COLORS, baseEmbed, successEmbed, errorEmbed, transactionEmbed, balanceEmbed, liveBalanceEmbed, formatDate };
