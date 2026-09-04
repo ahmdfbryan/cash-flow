@@ -1,10 +1,10 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('../database/db');
 const sheets = require('../services/sheetsService');
 const notifier = require('../services/notifier');
 const saldoBoard = require('../services/saldoBoard');
 const config = require('../config');
-const { transactionEmbed, errorEmbed, successEmbed } = require('../utils/embeds');
+const { transactionEmbed, errorEmbed, successEmbed, baseEmbed } = require('../utils/embeds');
 const { formatRupiah, currentMonthKey } = require('../utils/format');
 
 async function getWalletChoices() {
@@ -50,25 +50,60 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const jumlah = interaction.options.getInteger('jumlah');
-    const deskripsi = interaction.options.getString('deskripsi') || '';
 
     if (sub === 'transfer') {
-      return handleTransfer(interaction, jumlah, deskripsi);
+      return handleTransfer(interaction);
+    }
+    return handleMasukKeluar(interaction, sub);
+  },
+};
+
+async function handleMasukKeluar(interaction, sub) {
+  const jumlah = interaction.options.getInteger('jumlah');
+  const deskripsi = interaction.options.getString('deskripsi') || '';
+  const walletName = interaction.options.getString('dompet');
+  const categoryName = interaction.options.getString('kategori');
+  const type = sub === 'masuk' ? 'income' : 'expense';
+
+  const wallet = db.prepare('SELECT * FROM wallets WHERE name = ?').get(walletName);
+  if (!wallet) return interaction.reply({ embeds: [errorEmbed('Dompet Tidak Ditemukan', `Dompet "${walletName}" tidak ada. Cek \`/dompet list\`.`)], ephemeral: true });
+
+  const category = db.prepare('SELECT * FROM categories WHERE name = ? AND type = ?').get(categoryName, type);
+  if (!category) return interaction.reply({ embeds: [errorEmbed('Kategori Tidak Ditemukan', `Kategori "${categoryName}" tidak ada untuk tipe ini. Cek \`/kategori list\`.`)], ephemeral: true });
+
+  if (type === 'expense' && wallet.balance < jumlah) {
+    return interaction.reply({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${wallet.name} hanya ${formatRupiah(wallet.balance)}.`)], ephemeral: true });
+  }
+
+  const txChannel = config.channels.transaksi || config.channels.default;
+  const routeToOtherChannel = txChannel && interaction.channelId !== txChannel;
+
+  const confirmRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('catat_confirm').setLabel('✅ Konfirmasi').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('catat_cancel').setLabel('Batal').setStyle(ButtonStyle.Secondary),
+  );
+  const previewEmbed = baseEmbed().setTitle(`⚠️ Konfirmasi ${type === 'income' ? 'Pemasukan' : 'Pengeluaran'}`)
+    .addFields(
+      { name: 'Jumlah', value: formatRupiah(jumlah), inline: true },
+      { name: 'Dompet', value: `${wallet.emoji} ${wallet.name}`, inline: true },
+      { name: 'Kategori', value: `${category.emoji} ${category.name}`, inline: true },
+      { name: 'Deskripsi', value: deskripsi || '-' },
+    );
+
+  const reply = await interaction.reply({ embeds: [previewEmbed], components: [confirmRow], ephemeral: routeToOtherChannel, withResponse: true });
+  const collector = reply.resource.message.createMessageComponentCollector({ time: 30_000, max: 1 });
+
+  collector.on('collect', async (btn) => {
+    if (btn.user.id !== interaction.user.id) return btn.reply({ content: 'Bukan konfirmasi kamu.', ephemeral: true });
+
+    if (btn.customId === 'catat_cancel') {
+      return btn.update({ embeds: [errorEmbed('Dibatalkan', 'Transaksi tidak dicatat.')], components: [] });
     }
 
-    const walletName = interaction.options.getString('dompet');
-    const categoryName = interaction.options.getString('kategori');
-    const type = sub === 'masuk' ? 'income' : 'expense';
-
-    const wallet = db.prepare('SELECT * FROM wallets WHERE name = ?').get(walletName);
-    if (!wallet) return interaction.reply({ embeds: [errorEmbed('Dompet Tidak Ditemukan', `Dompet "${walletName}" tidak ada. Cek \`/dompet list\`.`)], ephemeral: true });
-
-    const category = db.prepare('SELECT * FROM categories WHERE name = ? AND type = ?').get(categoryName, type);
-    if (!category) return interaction.reply({ embeds: [errorEmbed('Kategori Tidak Ditemukan', `Kategori "${categoryName}" tidak ada untuk tipe ini. Cek \`/kategori list\`.`)], ephemeral: true });
-
-    if (type === 'expense' && wallet.balance < jumlah) {
-      return interaction.reply({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${wallet.name} hanya ${formatRupiah(wallet.balance)}.`)], ephemeral: true });
+    // Re-cek saldo terbaru sebelum benar-benar dicatat (jaga-jaga saldo berubah selama nunggu konfirmasi)
+    const freshWallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(wallet.id);
+    if (type === 'expense' && freshWallet.balance < jumlah) {
+      return btn.update({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${wallet.name} sekarang cuma ${formatRupiah(freshWallet.balance)}.`)], components: [] });
     }
 
     const delta = type === 'income' ? jumlah : -jumlah;
@@ -84,15 +119,15 @@ module.exports = {
 
     const updatedWallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(wallet.id);
     const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txId);
-
     const txEmbed = transactionEmbed(tx, updatedWallet, category);
-    const txChannel = config.channels.transaksi || config.channels.default;
-    const confirmText = txChannel && interaction.channelId !== txChannel
-      ? `✅ ${type === 'income' ? 'Pemasukan' : 'Pengeluaran'} ${formatRupiah(jumlah)} tercatat — cek detail di <#${txChannel}>`
-      : undefined;
-    await notifier.replyRouted(interaction, 'transaksi', txEmbed, { confirmText });
 
-    // Sync ke Sheets & cek budget, tanpa blok response
+    if (routeToOtherChannel) {
+      await btn.update({ content: `✅ ${type === 'income' ? 'Pemasukan' : 'Pengeluaran'} ${formatRupiah(jumlah)} tercatat — cek detail di <#${txChannel}>`, embeds: [], components: [] });
+      notifier.notifyTransaksi({ embeds: [txEmbed] });
+    } else {
+      await btn.update({ embeds: [txEmbed], components: [] });
+    }
+
     sheets.appendTransaction(tx, updatedWallet.name, category.name);
     const allWallets = db.prepare('SELECT * FROM wallets').all();
     const total = allWallets.reduce((s, w) => s + w.balance, 0);
@@ -100,15 +135,24 @@ module.exports = {
     saldoBoard.refresh();
 
     if (type === 'expense') {
-      await checkBudget(interaction, category);
+      await checkBudget(category);
     }
-  },
-};
+  });
 
-async function handleTransfer(interaction, jumlah, deskripsi) {
+  collector.on('end', (collected) => {
+    if (collected.size === 0) {
+      interaction.editReply({ components: [] }).catch(() => {});
+    }
+  });
+}
+
+async function handleTransfer(interaction) {
+  const jumlah = interaction.options.getInteger('jumlah');
+  const deskripsi = interaction.options.getString('deskripsi') || '';
   const fromName = interaction.options.getString('dari');
   const toName = interaction.options.getString('ke');
   const biayaAdmin = interaction.options.getInteger('biaya_admin') || 0;
+
   if (fromName === toName) {
     return interaction.reply({ embeds: [errorEmbed('Tidak Valid', 'Dompet asal dan tujuan tidak boleh sama.')], ephemeral: true });
   }
@@ -121,60 +165,99 @@ async function handleTransfer(interaction, jumlah, deskripsi) {
     return interaction.reply({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${from.name} hanya ${formatRupiah(from.balance)}, butuh ${formatRupiah(totalTerpotong)} (termasuk biaya admin ${formatRupiah(biayaAdmin)}).`)], ephemeral: true });
   }
 
-  const insertTx = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, NULL, ?, ?, ?)`);
-  const updateWallet = db.prepare('UPDATE wallets SET balance = balance + ? WHERE id = ?');
-  const linkPair = db.prepare('UPDATE transactions SET transfer_pair_id = ? WHERE id = ?');
-
-  let feeTxId = null;
-  let feeCategory = null;
-
-  db.transaction(() => {
-    const outTx = insertTx.run(from.id, 'transfer_out', jumlah, deskripsi);
-    const inTx = insertTx.run(to.id, 'transfer_in', jumlah, deskripsi);
-    updateWallet.run(-jumlah, from.id);
-    updateWallet.run(jumlah, to.id);
-    linkPair.run(inTx.lastInsertRowid, outTx.lastInsertRowid);
-    linkPair.run(outTx.lastInsertRowid, inTx.lastInsertRowid);
-
-    if (biayaAdmin > 0) {
-      // Auto-buat kategori "Biaya Admin" kalau belum ada, biar biaya transfer
-      // ikut kelihatan di laporan & budget, bukan cuma "ilang" dari saldo.
-      feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
-      if (!feeCategory) {
-        db.prepare('INSERT INTO categories (name, type, emoji) VALUES (?, ?, ?)').run('Biaya Admin', 'expense', '🏦');
-        feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
-      }
-      const feeResult = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, ?, 'expense', ?, ?)`)
-        .run(from.id, feeCategory.id, biayaAdmin, `Biaya admin transfer ke ${to.name}`);
-      feeTxId = feeResult.lastInsertRowid;
-      updateWallet.run(-biayaAdmin, from.id);
-    }
-  })();
-
-  const updatedFrom = db.prepare('SELECT * FROM wallets WHERE id = ?').get(from.id);
-  const updatedTo = db.prepare('SELECT * FROM wallets WHERE id = ?').get(to.id);
-
-  const feeLine = biayaAdmin > 0 ? `\nBiaya admin: ${formatRupiah(biayaAdmin)}` : '';
-  const transferEmbed = successEmbed('Transfer Berhasil', `${formatRupiah(jumlah)} dari **${from.name}** ke **${to.name}**${feeLine}\n\nSaldo ${from.name}: ${formatRupiah(updatedFrom.balance)}\nSaldo ${to.name}: ${formatRupiah(updatedTo.balance)}`);
   const txChannel = config.channels.transaksi || config.channels.default;
-  const confirmText = txChannel && interaction.channelId !== txChannel
-    ? `✅ Transfer ${formatRupiah(jumlah)}${biayaAdmin > 0 ? ` (+biaya admin ${formatRupiah(biayaAdmin)})` : ''} tercatat — cek detail di <#${txChannel}>`
-    : undefined;
-  await notifier.replyRouted(interaction, 'transaksi', transferEmbed, { confirmText });
+  const routeToOtherChannel = txChannel && interaction.channelId !== txChannel;
 
-  if (biayaAdmin > 0 && feeTxId) {
-    const feeTx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(feeTxId);
-    sheets.appendTransaction(feeTx, from.name, feeCategory.name);
-    await checkBudget(interaction, feeCategory);
-  }
+  const confirmRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('catat_confirm').setLabel('✅ Konfirmasi').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('catat_cancel').setLabel('Batal').setStyle(ButtonStyle.Secondary),
+  );
+  const previewEmbed = baseEmbed().setTitle('⚠️ Konfirmasi Transfer')
+    .addFields(
+      { name: 'Jumlah', value: formatRupiah(jumlah), inline: true },
+      { name: 'Dari', value: `${from.emoji} ${from.name}`, inline: true },
+      { name: 'Ke', value: `${to.emoji} ${to.name}`, inline: true },
+      { name: 'Biaya Admin', value: biayaAdmin > 0 ? formatRupiah(biayaAdmin) : '-', inline: true },
+      { name: 'Total Kepotong dari Dompet Asal', value: formatRupiah(totalTerpotong), inline: true },
+      { name: 'Deskripsi', value: deskripsi || '-' },
+    );
 
-  const allWallets = db.prepare('SELECT * FROM wallets').all();
-  const total = allWallets.reduce((s, w) => s + w.balance, 0);
-  sheets.syncSummary(allWallets, total);
-  saldoBoard.refresh();
+  const reply = await interaction.reply({ embeds: [previewEmbed], components: [confirmRow], ephemeral: routeToOtherChannel, withResponse: true });
+  const collector = reply.resource.message.createMessageComponentCollector({ time: 30_000, max: 1 });
+
+  collector.on('collect', async (btn) => {
+    if (btn.user.id !== interaction.user.id) return btn.reply({ content: 'Bukan konfirmasi kamu.', ephemeral: true });
+
+    if (btn.customId === 'catat_cancel') {
+      return btn.update({ embeds: [errorEmbed('Dibatalkan', 'Transfer tidak dicatat.')], components: [] });
+    }
+
+    const freshFrom = db.prepare('SELECT * FROM wallets WHERE id = ?').get(from.id);
+    if (freshFrom.balance < totalTerpotong) {
+      return btn.update({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${from.name} sekarang cuma ${formatRupiah(freshFrom.balance)}.`)], components: [] });
+    }
+
+    const insertTx = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, NULL, ?, ?, ?)`);
+    const updateWallet = db.prepare('UPDATE wallets SET balance = balance + ? WHERE id = ?');
+    const linkPair = db.prepare('UPDATE transactions SET transfer_pair_id = ? WHERE id = ?');
+
+    let feeTxId = null;
+    let feeCategory = null;
+
+    db.transaction(() => {
+      const outTx = insertTx.run(from.id, 'transfer_out', jumlah, deskripsi);
+      const inTx = insertTx.run(to.id, 'transfer_in', jumlah, deskripsi);
+      updateWallet.run(-jumlah, from.id);
+      updateWallet.run(jumlah, to.id);
+      linkPair.run(inTx.lastInsertRowid, outTx.lastInsertRowid);
+      linkPair.run(outTx.lastInsertRowid, inTx.lastInsertRowid);
+
+      if (biayaAdmin > 0) {
+        feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
+        if (!feeCategory) {
+          db.prepare('INSERT INTO categories (name, type, emoji) VALUES (?, ?, ?)').run('Biaya Admin', 'expense', '🏦');
+          feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
+        }
+        const feeResult = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, ?, 'expense', ?, ?)`)
+          .run(from.id, feeCategory.id, biayaAdmin, `Biaya admin transfer ke ${to.name}`);
+        feeTxId = feeResult.lastInsertRowid;
+        updateWallet.run(-biayaAdmin, from.id);
+      }
+    })();
+
+    const updatedFrom = db.prepare('SELECT * FROM wallets WHERE id = ?').get(from.id);
+    const updatedTo = db.prepare('SELECT * FROM wallets WHERE id = ?').get(to.id);
+
+    const feeLine = biayaAdmin > 0 ? `\nBiaya admin: ${formatRupiah(biayaAdmin)}` : '';
+    const transferEmbed = successEmbed('Transfer Berhasil', `${formatRupiah(jumlah)} dari **${from.name}** ke **${to.name}**${feeLine}\n\nSaldo ${from.name}: ${formatRupiah(updatedFrom.balance)}\nSaldo ${to.name}: ${formatRupiah(updatedTo.balance)}`);
+
+    if (routeToOtherChannel) {
+      await btn.update({ content: `✅ Transfer ${formatRupiah(jumlah)}${biayaAdmin > 0 ? ` (+biaya admin ${formatRupiah(biayaAdmin)})` : ''} tercatat — cek detail di <#${txChannel}>`, embeds: [], components: [] });
+      notifier.notifyTransaksi({ embeds: [transferEmbed] });
+    } else {
+      await btn.update({ embeds: [transferEmbed], components: [] });
+    }
+
+    if (biayaAdmin > 0 && feeTxId) {
+      const feeTx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(feeTxId);
+      sheets.appendTransaction(feeTx, from.name, feeCategory.name);
+      await checkBudget(feeCategory);
+    }
+
+    const allWallets = db.prepare('SELECT * FROM wallets').all();
+    const total = allWallets.reduce((s, w) => s + w.balance, 0);
+    sheets.syncSummary(allWallets, total);
+    saldoBoard.refresh();
+  });
+
+  collector.on('end', (collected) => {
+    if (collected.size === 0) {
+      interaction.editReply({ components: [] }).catch(() => {});
+    }
+  });
 }
 
-async function checkBudget(interaction, category) {
+async function checkBudget(category) {
   const month = currentMonthKey();
   const budget = db.prepare('SELECT * FROM budgets WHERE category_id = ? AND month = ?').get(category.id, month);
   if (!budget) return;
