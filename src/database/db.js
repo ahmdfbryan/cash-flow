@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS recurring (
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `);
 
 // Seed default categories & wallet kalau masih kosong
