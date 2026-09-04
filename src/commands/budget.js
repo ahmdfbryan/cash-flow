@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database/db');
+const notifier = require('../services/notifier');
 const { successEmbed, errorEmbed, baseEmbed } = require('../utils/embeds');
 const { formatRupiah, currentMonthKey } = require('../utils/format');
 
@@ -34,7 +35,8 @@ module.exports = {
         ON CONFLICT(category_id, month) DO UPDATE SET limit_amount = excluded.limit_amount
       `).run(cat.id, month, limit);
 
-      return interaction.reply({ embeds: [successEmbed('Budget Diset', `Budget **${cat.name}** bulan ini: ${formatRupiah(limit)}`)] });
+      const budgetEmbed = successEmbed('Budget Diset', `Budget **${cat.name}** bulan ini: ${formatRupiah(limit)}`);
+      return notifier.replyRouted(interaction, 'budget', budgetEmbed);
     }
 
     if (sub === 'list') {
