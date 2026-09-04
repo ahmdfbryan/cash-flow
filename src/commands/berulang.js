@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database/db');
+const notifier = require('../services/notifier');
 const { successEmbed, errorEmbed, baseEmbed } = require('../utils/embeds');
 const { formatRupiah } = require('../utils/format');
 
@@ -61,7 +62,8 @@ module.exports = {
         .run(wallet.id, cat.id, tipe, jumlah, deskripsi, frekuensi, next);
 
       const freqLabel = { daily: 'harian', weekly: 'mingguan', monthly: 'bulanan' }[frekuensi];
-      return interaction.reply({ embeds: [successEmbed('Transaksi Berulang Dibuat', `${formatRupiah(jumlah)} (${freqLabel}) — ${cat.emoji} ${cat.name} dari/ke ${wallet.emoji} ${wallet.name}.\nEksekusi pertama otomatis: ${next}`)] });
+      const recurEmbed = successEmbed('Transaksi Berulang Dibuat', `${formatRupiah(jumlah)} (${freqLabel}) — ${cat.emoji} ${cat.name} dari/ke ${wallet.emoji} ${wallet.name}.\nEksekusi pertama otomatis: ${next}`);
+      return notifier.replyRouted(interaction, 'recurring', recurEmbed);
     }
 
     if (sub === 'list') {
