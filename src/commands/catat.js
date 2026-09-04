@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database/db');
 const sheets = require('../services/sheetsService');
 const notifier = require('../services/notifier');
+const config = require('../config');
 const { transactionEmbed, errorEmbed, successEmbed } = require('../utils/embeds');
 const { formatRupiah, currentMonthKey } = require('../utils/format');
 
@@ -83,12 +84,11 @@ module.exports = {
     const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(txId);
 
     const txEmbed = transactionEmbed(tx, updatedWallet, category);
-    await interaction.reply({ embeds: [txEmbed] });
-
-    // Log ke channel transaksi khusus (kalau command dipakai bukan di channel itu, tetap kecatat di sana)
-    if (interaction.channelId !== require('../config').channels.transaksi) {
-      notifier.notifyTransaksi({ embeds: [txEmbed] });
-    }
+    const txChannel = config.channels.transaksi || config.channels.default;
+    const confirmText = txChannel && interaction.channelId !== txChannel
+      ? `✅ ${type === 'income' ? 'Pemasukan' : 'Pengeluaran'} ${formatRupiah(jumlah)} tercatat — cek detail di <#${txChannel}>`
+      : undefined;
+    await notifier.replyRouted(interaction, 'transaksi', txEmbed, { confirmText });
 
     // Sync ke Sheets & cek budget, tanpa blok response
     sheets.appendTransaction(tx, updatedWallet.name, category.name);
@@ -130,10 +130,11 @@ async function handleTransfer(interaction, jumlah, deskripsi) {
   const updatedTo = db.prepare('SELECT * FROM wallets WHERE id = ?').get(to.id);
 
   const transferEmbed = successEmbed('Transfer Berhasil', `${formatRupiah(jumlah)} dari **${from.name}** ke **${to.name}**\n\nSaldo ${from.name}: ${formatRupiah(updatedFrom.balance)}\nSaldo ${to.name}: ${formatRupiah(updatedTo.balance)}`);
-  await interaction.reply({ embeds: [transferEmbed] });
-  if (interaction.channelId !== require('../config').channels.transaksi) {
-    notifier.notifyTransaksi({ embeds: [transferEmbed] });
-  }
+  const txChannel = config.channels.transaksi || config.channels.default;
+  const confirmText = txChannel && interaction.channelId !== txChannel
+    ? `✅ Transfer ${formatRupiah(jumlah)} tercatat — cek detail di <#${txChannel}>`
+    : undefined;
+  await notifier.replyRouted(interaction, 'transaksi', transferEmbed, { confirmText });
 
   const allWallets = db.prepare('SELECT * FROM wallets').all();
   const total = allWallets.reduce((s, w) => s + w.balance, 0);
