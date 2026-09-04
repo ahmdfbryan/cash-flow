@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const db = require('../database/db');
 const sheets = require('../services/sheetsService');
 const notifier = require('../services/notifier');
+const saldoBoard = require('../services/saldoBoard');
 const config = require('../config');
 const { transactionEmbed, errorEmbed, successEmbed } = require('../utils/embeds');
 const { formatRupiah, currentMonthKey } = require('../utils/format');
@@ -95,6 +96,7 @@ module.exports = {
     const allWallets = db.prepare('SELECT * FROM wallets').all();
     const total = allWallets.reduce((s, w) => s + w.balance, 0);
     sheets.syncSummary(allWallets, total);
+    saldoBoard.refresh();
 
     if (type === 'expense') {
       await checkBudget(interaction, category);
@@ -139,6 +141,7 @@ async function handleTransfer(interaction, jumlah, deskripsi) {
   const allWallets = db.prepare('SELECT * FROM wallets').all();
   const total = allWallets.reduce((s, w) => s + w.balance, 0);
   sheets.syncSummary(allWallets, total);
+  saldoBoard.refresh();
 }
 
 async function checkBudget(interaction, category) {
