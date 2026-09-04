@@ -1,0 +1,22 @@
+{
+  "name": "cashflow-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord untuk pencatatan cash flow pribadi real-time dengan sync Google Sheets",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "pm2:start": "pm2 start src/index.js --name cashflow-bot",
+    "pm2:restart": "pm2 restart cashflow-bot",
+    "pm2:logs": "pm2 logs cashflow-bot"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "google-auth-library": "^9.14.1",
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3"
+  }
+}
