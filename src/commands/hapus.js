@@ -17,6 +17,9 @@ module.exports = {
     const tx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
     if (!tx) return interaction.reply({ embeds: [errorEmbed('Tidak Ditemukan', `Transaksi #${id} tidak ada.`)], ephemeral: true });
 
+    const txChannel = config.channels.transaksi || config.channels.default;
+    const routeToOtherChannel = txChannel && interaction.channelId !== txChannel;
+
     const confirmRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`hapus_confirm_${id}`).setLabel('Ya, Hapus').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('hapus_cancel').setLabel('Batal').setStyle(ButtonStyle.Secondary),
@@ -25,7 +28,9 @@ module.exports = {
     const embed = baseEmbed().setTitle('⚠️ Konfirmasi Hapus')
       .setDescription(`Yakin mau hapus transaksi #${id} sebesar **${formatRupiah(tx.amount)}**?\n${tx.type === 'transfer_in' || tx.type === 'transfer_out' ? '⚠️ Ini transaksi transfer, pasangannya juga akan ikut terhapus.' : ''}`);
 
-    const reply = await interaction.reply({ embeds: [embed], components: [confirmRow], withResponse: true });
+    // Kalau command dijalankan bukan di channel transaksi, dialog konfirmasinya dibuat
+    // ephemeral (cuma kamu yang lihat) — hasil akhirnya baru dikirim ke channel transaksi.
+    const reply = await interaction.reply({ embeds: [embed], components: [confirmRow], ephemeral: routeToOtherChannel, withResponse: true });
 
     const collector = reply.resource.message.createMessageComponentCollector({ time: 30_000, max: 1 });
     collector.on('collect', async (btn) => {
@@ -58,9 +63,12 @@ module.exports = {
       sheets.syncSummary(allWallets, total);
 
       const deletedEmbed = successEmbed('Transaksi Dihapus', `Transaksi #${id} sebesar ${formatRupiah(freshTx.amount)} dihapus, saldo dikembalikan.`);
-      await btn.update({ embeds: [deletedEmbed], components: [] });
-      if (btn.channelId !== config.channels.transaksi) {
+
+      if (routeToOtherChannel) {
+        await btn.update({ content: `✅ Transaksi #${id} dihapus — cek log di <#${txChannel}>`, embeds: [], components: [] });
         notifier.notifyTransaksi({ embeds: [deletedEmbed] });
+      } else {
+        await btn.update({ embeds: [deletedEmbed], components: [] });
       }
     });
   },
