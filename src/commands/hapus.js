@@ -2,6 +2,7 @@ const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = re
 const db = require('../database/db');
 const sheets = require('../services/sheetsService');
 const notifier = require('../services/notifier');
+const saldoBoard = require('../services/saldoBoard');
 const config = require('../config');
 const { errorEmbed, successEmbed, baseEmbed } = require('../utils/embeds');
 const { formatRupiah } = require('../utils/format');
@@ -61,6 +62,7 @@ module.exports = {
       const allWallets = db.prepare('SELECT * FROM wallets').all();
       const total = allWallets.reduce((s, w) => s + w.balance, 0);
       sheets.syncSummary(allWallets, total);
+      saldoBoard.refresh();
 
       const deletedEmbed = successEmbed('Transaksi Dihapus', `Transaksi #${id} sebesar ${formatRupiah(freshTx.amount)} dihapus, saldo dikembalikan.`);
 
