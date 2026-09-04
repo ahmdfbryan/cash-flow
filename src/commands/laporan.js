@@ -1,6 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../database/db');
 const chart = require('../services/chartService');
+const notifier = require('../services/notifier');
+const config = require('../config');
 const { errorEmbed } = require('../utils/embeds');
 const { formatRupiah } = require('../utils/format');
 
@@ -16,7 +18,10 @@ module.exports = {
       )),
 
   async execute(interaction) {
-    await interaction.deferReply();
+    const laporanChannel = config.channels.laporan || config.channels.default;
+    const routeToOtherChannel = laporanChannel && interaction.channelId !== laporanChannel;
+
+    await interaction.deferReply({ ephemeral: routeToOtherChannel });
     const periode = interaction.options.getString('periode');
     const dayFilter = periode === 'bulan_ini'
       ? "strftime('%Y-%m', t.created_at) = strftime('%Y-%m', 'now')"
@@ -51,6 +56,11 @@ module.exports = {
       .setImage(pieUrl)
       .setTimestamp();
 
-    return interaction.editReply({ embeds: [embed] });
+    if (routeToOtherChannel) {
+      await interaction.editReply({ content: `✅ Laporan ${periode.replace('_', ' ')} sudah dibuat — cek di <#${laporanChannel}>` });
+      notifier.notifyLaporan({ embeds: [embed] });
+    } else {
+      await interaction.editReply({ embeds: [embed] });
+    }
   },
 };
