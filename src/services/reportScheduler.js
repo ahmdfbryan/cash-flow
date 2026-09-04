@@ -4,6 +4,7 @@ const db = require('../database/db');
 const sheets = require('./sheetsService');
 const chartService = require('./chartService');
 const notifier = require('./notifier');
+const saldoBoard = require('./saldoBoard');
 const config = require('../config');
 const { formatRupiah } = require('../utils/format');
 
@@ -54,6 +55,7 @@ async function processRecurring(client) {
   const allWallets = db.prepare('SELECT * FROM wallets').all();
   const total = allWallets.reduce((s, w) => s + w.balance, 0);
   sheets.syncSummary(allWallets, total);
+  saldoBoard.refresh();
 }
 
 async function sendPeriodicReport(client, label, dayFilter) {
