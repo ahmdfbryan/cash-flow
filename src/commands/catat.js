@@ -29,6 +29,7 @@ module.exports = {
       .addIntegerOption(o => o.setName('jumlah').setDescription('Nominal (angka saja)').setRequired(true).setMinValue(1))
       .addStringOption(o => o.setName('dari').setDescription('Dompet asal').setRequired(true).setAutocomplete(true))
       .addStringOption(o => o.setName('ke').setDescription('Dompet tujuan').setRequired(true).setAutocomplete(true))
+      .addIntegerOption(o => o.setName('biaya_admin').setDescription('Biaya admin transfer, kalau ada (default 0)').setMinValue(0))
       .addStringOption(o => o.setName('deskripsi').setDescription('Catatan tambahan'))),
 
   async autocomplete(interaction) {
@@ -107,17 +108,25 @@ module.exports = {
 async function handleTransfer(interaction, jumlah, deskripsi) {
   const fromName = interaction.options.getString('dari');
   const toName = interaction.options.getString('ke');
+  const biayaAdmin = interaction.options.getInteger('biaya_admin') || 0;
   if (fromName === toName) {
     return interaction.reply({ embeds: [errorEmbed('Tidak Valid', 'Dompet asal dan tujuan tidak boleh sama.')], ephemeral: true });
   }
   const from = db.prepare('SELECT * FROM wallets WHERE name = ?').get(fromName);
   const to = db.prepare('SELECT * FROM wallets WHERE name = ?').get(toName);
   if (!from || !to) return interaction.reply({ embeds: [errorEmbed('Dompet Tidak Ditemukan', 'Cek nama dompet dengan `/dompet list`.')], ephemeral: true });
-  if (from.balance < jumlah) return interaction.reply({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${from.name} hanya ${formatRupiah(from.balance)}.`)], ephemeral: true });
+
+  const totalTerpotong = jumlah + biayaAdmin;
+  if (from.balance < totalTerpotong) {
+    return interaction.reply({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${from.name} hanya ${formatRupiah(from.balance)}, butuh ${formatRupiah(totalTerpotong)} (termasuk biaya admin ${formatRupiah(biayaAdmin)}).`)], ephemeral: true });
+  }
 
   const insertTx = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, NULL, ?, ?, ?)`);
   const updateWallet = db.prepare('UPDATE wallets SET balance = balance + ? WHERE id = ?');
   const linkPair = db.prepare('UPDATE transactions SET transfer_pair_id = ? WHERE id = ?');
+
+  let feeTxId = null;
+  let feeCategory = null;
 
   db.transaction(() => {
     const outTx = insertTx.run(from.id, 'transfer_out', jumlah, deskripsi);
@@ -126,17 +135,38 @@ async function handleTransfer(interaction, jumlah, deskripsi) {
     updateWallet.run(jumlah, to.id);
     linkPair.run(inTx.lastInsertRowid, outTx.lastInsertRowid);
     linkPair.run(outTx.lastInsertRowid, inTx.lastInsertRowid);
+
+    if (biayaAdmin > 0) {
+      // Auto-buat kategori "Biaya Admin" kalau belum ada, biar biaya transfer
+      // ikut kelihatan di laporan & budget, bukan cuma "ilang" dari saldo.
+      feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
+      if (!feeCategory) {
+        db.prepare('INSERT INTO categories (name, type, emoji) VALUES (?, ?, ?)').run('Biaya Admin', 'expense', '🏦');
+        feeCategory = db.prepare("SELECT * FROM categories WHERE name = ? AND type = 'expense'").get('Biaya Admin');
+      }
+      const feeResult = db.prepare(`INSERT INTO transactions (wallet_id, category_id, type, amount, description) VALUES (?, ?, 'expense', ?, ?)`)
+        .run(from.id, feeCategory.id, biayaAdmin, `Biaya admin transfer ke ${to.name}`);
+      feeTxId = feeResult.lastInsertRowid;
+      updateWallet.run(-biayaAdmin, from.id);
+    }
   })();
 
   const updatedFrom = db.prepare('SELECT * FROM wallets WHERE id = ?').get(from.id);
   const updatedTo = db.prepare('SELECT * FROM wallets WHERE id = ?').get(to.id);
 
-  const transferEmbed = successEmbed('Transfer Berhasil', `${formatRupiah(jumlah)} dari **${from.name}** ke **${to.name}**\n\nSaldo ${from.name}: ${formatRupiah(updatedFrom.balance)}\nSaldo ${to.name}: ${formatRupiah(updatedTo.balance)}`);
+  const feeLine = biayaAdmin > 0 ? `\nBiaya admin: ${formatRupiah(biayaAdmin)}` : '';
+  const transferEmbed = successEmbed('Transfer Berhasil', `${formatRupiah(jumlah)} dari **${from.name}** ke **${to.name}**${feeLine}\n\nSaldo ${from.name}: ${formatRupiah(updatedFrom.balance)}\nSaldo ${to.name}: ${formatRupiah(updatedTo.balance)}`);
   const txChannel = config.channels.transaksi || config.channels.default;
   const confirmText = txChannel && interaction.channelId !== txChannel
-    ? `✅ Transfer ${formatRupiah(jumlah)} tercatat — cek detail di <#${txChannel}>`
+    ? `✅ Transfer ${formatRupiah(jumlah)}${biayaAdmin > 0 ? ` (+biaya admin ${formatRupiah(biayaAdmin)})` : ''} tercatat — cek detail di <#${txChannel}>`
     : undefined;
   await notifier.replyRouted(interaction, 'transaksi', transferEmbed, { confirmText });
+
+  if (biayaAdmin > 0 && feeTxId) {
+    const feeTx = db.prepare('SELECT * FROM transactions WHERE id = ?').get(feeTxId);
+    sheets.appendTransaction(feeTx, from.name, feeCategory.name);
+    await checkBudget(interaction, feeCategory);
+  }
 
   const allWallets = db.prepare('SELECT * FROM wallets').all();
   const total = allWallets.reduce((s, w) => s + w.balance, 0);
