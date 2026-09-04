@@ -29,8 +29,28 @@ async function send(jenis, payload) {
   }
 }
 
+/**
+ * Reply ke interaction dengan smart routing:
+ * - Kalau command dijalankan DI channel tujuan (atau channel tujuan tidak diset), embed lengkap
+ *   langsung jadi reply biasa di situ (tidak dobel).
+ * - Kalau dijalankan DI CHANNEL LAIN, reply cuma jadi konfirmasi singkat ephemeral (cuma keliatan
+ *   buat kamu), dan embed lengkapnya dikirim ke channel tujuan.
+ * jenis: 'transaksi' | 'budget' | 'recurring' | 'laporan' | 'system'
+ */
+async function replyRouted(interaction, jenis, embed, { confirmText } = {}) {
+  const channelId = config.channels[jenis] || config.channels.default;
+
+  if (!channelId || interaction.channelId === channelId) {
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  await interaction.reply({ content: confirmText || `✅ Tercatat — cek detailnya di <#${channelId}>`, ephemeral: true });
+  return send(jenis, { embeds: [embed] });
+}
+
 module.exports = {
   attachClient,
+  replyRouted,
   notifyTransaksi: (payload) => send('transaksi', payload),
   notifyBudget: (payload) => send('budget', payload),
   notifyRecurring: (payload) => send('recurring', payload),
