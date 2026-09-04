@@ -19,8 +19,8 @@ module.exports = {
     await interaction.deferReply();
     const periode = interaction.options.getString('periode');
     const dayFilter = periode === 'bulan_ini'
-      ? "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')"
-      : periode === '7_hari' ? "created_at >= datetime('now', '-7 days')" : "created_at >= datetime('now', '-30 days')";
+      ? "strftime('%Y-%m', t.created_at) = strftime('%Y-%m', 'now')"
+      : periode === '7_hari' ? "t.created_at >= datetime('now', '-7 days')" : "t.created_at >= datetime('now', '-30 days')";
 
     const byCategory = db.prepare(`
       SELECT c.name, c.emoji, SUM(t.amount) as total FROM transactions t
@@ -33,8 +33,8 @@ module.exports = {
       return interaction.editReply({ embeds: [errorEmbed('Belum Ada Data', 'Belum ada pengeluaran pada periode ini untuk dibuatkan laporan.')] });
     }
 
-    const totalIncome = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions WHERE type='income' AND ${dayFilter}`).get().t;
-    const totalExpense = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions WHERE type='expense' AND ${dayFilter}`).get().t;
+    const totalIncome = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions t WHERE t.type='income' AND ${dayFilter}`).get().t;
+    const totalExpense = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions t WHERE t.type='expense' AND ${dayFilter}`).get().t;
 
     const pieUrl = chart.pieChartByCategory(byCategory);
 
