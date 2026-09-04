@@ -57,8 +57,8 @@ async function processRecurring(client) {
 }
 
 async function sendPeriodicReport(client, label, dayFilter) {
-  const totalIncome = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions WHERE type='income' AND ${dayFilter}`).get().t;
-  const totalExpense = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions WHERE type='expense' AND ${dayFilter}`).get().t;
+  const totalIncome = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions t WHERE t.type='income' AND ${dayFilter}`).get().t;
+  const totalExpense = db.prepare(`SELECT COALESCE(SUM(amount),0) t FROM transactions t WHERE t.type='expense' AND ${dayFilter}`).get().t;
   const byCategory = db.prepare(`
     SELECT c.name, c.emoji, SUM(t.amount) as total FROM transactions t
     JOIN categories c ON c.id = t.category_id
@@ -81,10 +81,10 @@ function start(client) {
   cron.schedule('0 * * * *', () => processRecurring(client), { timezone: config.timezone });
 
   // Laporan mingguan tiap Senin jam 8 pagi
-  cron.schedule('0 8 * * 1', () => sendPeriodicReport(client, 'Mingguan', "created_at >= datetime('now', '-7 days')"), { timezone: config.timezone });
+  cron.schedule('0 8 * * 1', () => sendPeriodicReport(client, 'Mingguan', "t.created_at >= datetime('now', '-7 days')"), { timezone: config.timezone });
 
   // Laporan bulanan tiap tanggal 1 jam 8 pagi
-  cron.schedule('0 8 1 * *', () => sendPeriodicReport(client, 'Bulanan', "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')"), { timezone: config.timezone });
+  cron.schedule('0 8 1 * *', () => sendPeriodicReport(client, 'Bulanan', "strftime('%Y-%m', t.created_at) = strftime('%Y-%m', 'now')"), { timezone: config.timezone });
 
   console.log('[Scheduler] Cron jobs aktif: recurring (tiap jam), laporan mingguan & bulanan.');
 }
