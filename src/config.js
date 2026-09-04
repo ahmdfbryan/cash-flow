@@ -12,6 +12,7 @@ module.exports = {
     recurring: process.env.CHANNEL_RECURRING,
     laporan: process.env.CHANNEL_LAPORAN,
     system: process.env.CHANNEL_SYSTEM,
+    saldo: process.env.CHANNEL_SALDO,
   },
   googleSheetId: process.env.GOOGLE_SHEET_ID,
   googleServiceAccountPath: process.env.GOOGLE_SERVICE_ACCOUNT_PATH || './service-account.json',
