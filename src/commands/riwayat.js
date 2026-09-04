@@ -4,9 +4,9 @@ const { baseEmbed, errorEmbed } = require('../utils/embeds');
 const { formatRupiah, formatDate } = require('../utils/format');
 
 const PERIODS = {
-  hari_ini: "date(created_at) = date('now')",
-  minggu_ini: "strftime('%Y-%W', created_at) = strftime('%Y-%W', 'now')",
-  bulan_ini: "strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')",
+  hari_ini: "date(t.created_at) = date('now')",
+  minggu_ini: "strftime('%Y-%W', t.created_at) = strftime('%Y-%W', 'now')",
+  bulan_ini: "strftime('%Y-%m', t.created_at) = strftime('%Y-%m', 'now')",
   semua: '1=1',
 };
 
