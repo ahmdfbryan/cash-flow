@@ -11,7 +11,7 @@ function init() {
   }
   try {
     const genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' });
     ready = true;
     console.log('[Gemini] Siap digunakan.');
   } catch (err) {
