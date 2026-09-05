@@ -1,21 +1,13 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { baseEmbed } = require('../utils/embeds');
+const { SlashCommandBuilder } = require('discord.js');
+const stickyPanel = require('../services/stickyPanel');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('panel')
-    .setDescription('Post panel tombol catat transaksi (biar gak perlu ngetik /catat)'),
+    .setDescription('Pasang panel tombol catat transaksi yang selalu nempel di bawah channel ini'),
 
   async execute(interaction) {
-    const embed = baseEmbed().setTitle('💰 Panel Catat Cepat')
-      .setDescription('Klik salah satu tombol di bawah buat catat transaksi lewat form, tanpa perlu ngetik command.');
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('panel_masuk').setLabel('Catat Masuk').setEmoji('📥').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('panel_keluar').setLabel('Catat Keluar').setEmoji('📤').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('panel_transfer').setLabel('Transfer').setEmoji('🔄').setStyle(ButtonStyle.Primary),
-    );
-
-    return interaction.reply({ embeds: [embed], components: [row] });
+    await stickyPanel.postPanel(interaction.channel);
+    return interaction.reply({ content: '✅ Panel dipasang — bakal otomatis geser ke bawah tiap ada pesan baru di channel ini.', ephemeral: true });
   },
 };
