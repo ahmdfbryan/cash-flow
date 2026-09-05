@@ -50,25 +50,37 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
+    const jumlah = interaction.options.getInteger('jumlah');
+    const deskripsi = interaction.options.getString('deskripsi') || '';
 
     if (sub === 'transfer') {
-      return handleTransfer(interaction);
+      const fromName = interaction.options.getString('dari');
+      const toName = interaction.options.getString('ke');
+      const biayaAdmin = interaction.options.getInteger('biaya_admin') || 0;
+      return processTransfer(interaction, jumlah, fromName, toName, biayaAdmin, deskripsi);
     }
-    return handleMasukKeluar(interaction, sub);
+
+    const walletName = interaction.options.getString('dompet');
+    const categoryName = interaction.options.getString('kategori');
+    const type = sub === 'masuk' ? 'income' : 'expense';
+    return processMasukKeluar(interaction, type, jumlah, walletName, categoryName, deskripsi);
   },
+
+  // Diekspor biar bisa dipanggil dari panelHandler.js (tombol + modal form)
+  processMasukKeluar,
+  processTransfer,
 };
 
-async function handleMasukKeluar(interaction, sub) {
-  const jumlah = interaction.options.getInteger('jumlah');
-  const deskripsi = interaction.options.getString('deskripsi') || '';
-  const walletName = interaction.options.getString('dompet');
-  const categoryName = interaction.options.getString('kategori');
-  const type = sub === 'masuk' ? 'income' : 'expense';
-
-  const wallet = db.prepare('SELECT * FROM wallets WHERE name = ?').get(walletName);
+/**
+ * Inti logika catat masuk/keluar. Dipakai baik dari slash command /catat
+ * maupun dari modal form panel — makanya semua nilai masuk sebagai parameter
+ * biasa (bukan ditarik dari interaction.options).
+ */
+async function processMasukKeluar(interaction, type, jumlah, walletName, categoryName, deskripsi) {
+  const wallet = db.prepare('SELECT * FROM wallets WHERE LOWER(name) = LOWER(?)').get(walletName.trim());
   if (!wallet) return interaction.reply({ embeds: [errorEmbed('Dompet Tidak Ditemukan', `Dompet "${walletName}" tidak ada. Cek \`/dompet list\`.`)], ephemeral: true });
 
-  const category = db.prepare('SELECT * FROM categories WHERE name = ? AND type = ?').get(categoryName, type);
+  const category = db.prepare('SELECT * FROM categories WHERE LOWER(name) = LOWER(?) AND type = ?').get(categoryName.trim(), type);
   if (!category) return interaction.reply({ embeds: [errorEmbed('Kategori Tidak Ditemukan', `Kategori "${categoryName}" tidak ada untuk tipe ini. Cek \`/kategori list\`.`)], ephemeral: true });
 
   if (type === 'expense' && wallet.balance < jumlah) {
@@ -100,7 +112,6 @@ async function handleMasukKeluar(interaction, sub) {
       return btn.update({ embeds: [errorEmbed('Dibatalkan', 'Transaksi tidak dicatat.')], components: [] });
     }
 
-    // Re-cek saldo terbaru sebelum benar-benar dicatat (jaga-jaga saldo berubah selama nunggu konfirmasi)
     const freshWallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(wallet.id);
     if (type === 'expense' && freshWallet.balance < jumlah) {
       return btn.update({ embeds: [errorEmbed('Saldo Tidak Cukup', `Saldo ${wallet.name} sekarang cuma ${formatRupiah(freshWallet.balance)}.`)], components: [] });
@@ -146,18 +157,12 @@ async function handleMasukKeluar(interaction, sub) {
   });
 }
 
-async function handleTransfer(interaction) {
-  const jumlah = interaction.options.getInteger('jumlah');
-  const deskripsi = interaction.options.getString('deskripsi') || '';
-  const fromName = interaction.options.getString('dari');
-  const toName = interaction.options.getString('ke');
-  const biayaAdmin = interaction.options.getInteger('biaya_admin') || 0;
-
-  if (fromName === toName) {
+async function processTransfer(interaction, jumlah, fromName, toName, biayaAdmin, deskripsi) {
+  if (fromName.trim().toLowerCase() === toName.trim().toLowerCase()) {
     return interaction.reply({ embeds: [errorEmbed('Tidak Valid', 'Dompet asal dan tujuan tidak boleh sama.')], ephemeral: true });
   }
-  const from = db.prepare('SELECT * FROM wallets WHERE name = ?').get(fromName);
-  const to = db.prepare('SELECT * FROM wallets WHERE name = ?').get(toName);
+  const from = db.prepare('SELECT * FROM wallets WHERE LOWER(name) = LOWER(?)').get(fromName.trim());
+  const to = db.prepare('SELECT * FROM wallets WHERE LOWER(name) = LOWER(?)').get(toName.trim());
   if (!from || !to) return interaction.reply({ embeds: [errorEmbed('Dompet Tidak Ditemukan', 'Cek nama dompet dengan `/dompet list`.')], ephemeral: true });
 
   const totalTerpotong = jumlah + biayaAdmin;
