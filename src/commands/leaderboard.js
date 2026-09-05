@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../database/db');
+const gemini = require('../services/geminiService');
 const { errorEmbed } = require('../utils/embeds');
 const { formatRupiah } = require('../utils/format');
 
@@ -18,6 +19,7 @@ module.exports = {
       )),
 
   async execute(interaction) {
+    await interaction.deferReply();
     const periode = interaction.options.getString('periode') || 'bulan_ini';
     const filters = {
       bulan_ini: "strftime('%Y-%m', t.created_at) = strftime('%Y-%m', 'now')",
@@ -37,7 +39,7 @@ module.exports = {
     `).all();
 
     if (rows.length === 0) {
-      return interaction.reply({ embeds: [errorEmbed('Belum Ada Data', 'Belum ada pengeluaran pada periode ini.')], ephemeral: true });
+      return interaction.editReply({ embeds: [errorEmbed('Belum Ada Data', 'Belum ada pengeluaran pada periode ini.')] });
     }
 
     const grandTotal = rows.reduce((s, r) => s + r.total, 0);
@@ -55,6 +57,11 @@ module.exports = {
       .setFooter({ text: `Total pengeluaran: ${formatRupiah(grandTotal)}` })
       .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    const top3Summary = rows.slice(0, 3).map(r => `${r.name}: ${formatRupiah(r.total)}`).join(', ');
+    const prompt = `Kamu asisten keuangan pribadi yang santai dan sedikit jenaka. Leaderboard kategori paling boros periode "${periodLabel[periode]}": ${top3Summary}, dari total ${formatRupiah(grandTotal)}. Tulis 1-2 kalimat singkat bahasa Indonesia santai, boleh sedikit menyindir dengan nada bercanda soal kategori teratas. Jangan pakai salam pembuka, langsung ke intinya.`;
+    const narrative = await gemini.generateText(prompt);
+    if (narrative) embed.addFields({ name: '💬 Komentar', value: narrative });
+
+    return interaction.editReply({ embeds: [embed] });
   },
 };
