@@ -6,6 +6,7 @@ const sheets = require('./services/sheetsService');
 const scheduler = require('./services/reportScheduler');
 const notifier = require('./services/notifier');
 const saldoBoard = require('./services/saldoBoard');
+const gemini = require('./services/geminiService');
 const { errorEmbed, baseEmbed } = require('./utils/embeds');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -21,11 +22,12 @@ client.once('ready', async () => {
   console.log(`✅ Bot login sebagai ${client.user.tag}`);
   notifier.attachClient(client);
   saldoBoard.attachClient(client);
+  gemini.init();
   await sheets.init();
   await saldoBoard.init();
   scheduler.start(client);
 
-  notifier.notifySystem({ embeds: [baseEmbed(0x57F287).setTitle('🟢 Bot Online').setDescription(`${client.user.tag} siap dipakai.\nSync Sheets: ${sheets.isReady() ? '✅ aktif' : '⚠️ nonaktif'}`)] });
+  notifier.notifySystem({ embeds: [baseEmbed(0x57F287).setTitle('🟢 Bot Online').setDescription(`${client.user.tag} siap dipakai.\nSync Sheets: ${sheets.isReady() ? '✅ aktif' : '⚠️ nonaktif'}\nGemini AI: ${gemini.isReady() ? '✅ aktif' : '⚠️ nonaktif'}`)] });
 });
 
 client.on('interactionCreate', async (interaction) => {
