@@ -57,6 +57,16 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
+    if (interaction.isStringSelectMenu() && panelHandler.isPanelSelect(interaction.customId)) {
+    try {
+      await panelHandler.handleSelectMenu(interaction);
+    } catch (err) {
+      console.error('Error di panel select:', err);
+      notifier.notifySystem({ embeds: [errorEmbed('Bot Error', `Panel select: \`${interaction.customId}\`\n\`\`\`${String(err.message).slice(0, 500)}\`\`\``)] });
+    }
+    return;
+  }
+  
   if (interaction.isModalSubmit() && panelHandler.isPanelModal(interaction.customId)) {
     try {
       await panelHandler.handleModalSubmit(interaction);
