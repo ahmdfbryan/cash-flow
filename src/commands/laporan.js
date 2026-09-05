@@ -2,6 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../database/db');
 const chart = require('../services/chartService');
 const notifier = require('../services/notifier');
+const gemini = require('../services/geminiService');
 const config = require('../config');
 const { errorEmbed } = require('../utils/embeds');
 const { formatRupiah } = require('../utils/format');
@@ -55,7 +56,7 @@ module.exports = {
 
     await interaction.deferReply({ ephemeral: routeToOtherChannel });
 
-    const embed = periode === 'tren_6bulan' ? buildTrendEmbed() : buildComparativeEmbed(periode);
+    const embed = periode === 'tren_6bulan' ? await buildTrendEmbed() : await buildComparativeEmbed(periode);
 
     if (!embed) {
       return interaction.editReply({ embeds: [errorEmbed('Belum Ada Data', 'Belum ada pengeluaran pada periode ini untuk dibuatkan laporan.')] });
@@ -70,7 +71,7 @@ module.exports = {
   },
 };
 
-function buildTrendEmbed() {
+async function buildTrendEmbed() {
   const rows = db.prepare(`
     SELECT strftime('%Y-%m', t.created_at) as ym,
       SUM(CASE WHEN t.type='income' THEN t.amount ELSE 0 END) as income,
@@ -98,7 +99,7 @@ function buildTrendEmbed() {
   const avgExpense = Math.round(totalExpense6bl / 6);
 
   const chartUrl = chart.trendChart(labels, incomeData, expenseData);
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('📈 Tren Cash Flow — 6 Bulan Terakhir')
     .addFields(
@@ -108,9 +109,16 @@ function buildTrendEmbed() {
     )
     .setImage(chartUrl)
     .setTimestamp();
+
+  const trendDirection = expenseData[5] > expenseData[0] ? 'naik' : 'turun';
+  const prompt = `Kamu asisten keuangan pribadi yang santai dan to the point, bukan template formal. Data pengeluaran bulanan 6 bulan terakhir (${labels.join(', ')}): ${expenseData.map(formatRupiah).join(', ')}. Pemasukan: ${incomeData.map(formatRupiah).join(', ')}. Tren pengeluaran cenderung ${trendDirection}. Tulis 2 kalimat singkat bahasa Indonesia santai (bukan formal/kaku) mengomentari pola ini, boleh kasih 1 observasi konkret dari angkanya. Jangan pakai salam pembuka, jangan pakai frasa generik seperti "berikut adalah", langsung ke intinya.`;
+  const narrative = await gemini.generateText(prompt);
+  if (narrative) embed.addFields({ name: '💬 Catatan', value: narrative });
+
+  return embed;
 }
 
-function buildComparativeEmbed(periode) {
+async function buildComparativeEmbed(periode) {
   const { current, previous, label } = getPeriodFilters(periode);
 
   const byCategory = db.prepare(`
@@ -145,7 +153,7 @@ function buildComparativeEmbed(periode) {
 
   const periodLabel = periode === 'bulan_ini' ? 'Bulan Ini' : periode === '7_hari' ? '7 Hari Terakhir' : '30 Hari Terakhir';
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle(`📈 Laporan Cash Flow — ${periodLabel}`)
     .addFields(
@@ -155,7 +163,14 @@ function buildComparativeEmbed(periode) {
       { name: 'Kategori Terbesar', value: `${topCategory.emoji} ${topCategory.name} — ${formatRupiah(topCategory.total)}` },
       { name: `Per Kategori (vs ${label})`, value: categoryLines.join('\n') },
     )
-    .setImage(pieUrl)
     .setFooter({ text: `Perbandingan terhadap ${label}` })
+    .setImage(pieUrl)
     .setTimestamp();
+
+  const categorySummary = byCategory.slice(0, 5).map(c => `${c.name}: ${formatRupiah(c.total)}`).join(', ');
+  const prompt = `Kamu asisten keuangan pribadi yang santai dan to the point, bukan template formal. Data periode "${periodLabel}": total pemasukan ${formatRupiah(totalIncome)} (${label} ${formatRupiah(prevTotalIncome)}), total pengeluaran ${formatRupiah(totalExpense)} (${label} ${formatRupiah(prevTotalExpense)}). Kategori pengeluaran terbesar: ${categorySummary}. Tulis 2 kalimat singkat bahasa Indonesia santai mengomentari data ini, sebut angka atau kategori spesifik yang relevan. Jangan pakai salam pembuka atau frasa generik seperti "berikut adalah", langsung ke intinya.`;
+  const narrative = await gemini.generateText(prompt);
+  if (narrative) embed.addFields({ name: '💬 Catatan', value: narrative });
+
+  return embed;
 }
