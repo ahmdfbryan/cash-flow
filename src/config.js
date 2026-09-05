@@ -16,6 +16,7 @@ module.exports = {
   },
   googleSheetId: process.env.GOOGLE_SHEET_ID,
   googleServiceAccountPath: process.env.GOOGLE_SERVICE_ACCOUNT_PATH || './service-account.json',
+  geminiApiKey: process.env.GEMINI_API_KEY,
   timezone: process.env.TIMEZONE || 'Asia/Jakarta',
   currency: process.env.CURRENCY || 'IDR',
 };
