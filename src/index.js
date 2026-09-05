@@ -8,9 +8,10 @@ const notifier = require('./services/notifier');
 const saldoBoard = require('./services/saldoBoard');
 const gemini = require('./services/geminiService');
 const panelHandler = require('./services/panelHandler');
+const stickyPanel = require('./services/stickyPanel');
 const { errorEmbed, baseEmbed } = require('./utils/embeds');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 client.commands = new Collection();
 
 const commandsPath = path.join(__dirname, 'commands');
@@ -23,12 +24,19 @@ client.once('ready', async () => {
   console.log(`✅ Bot login sebagai ${client.user.tag}`);
   notifier.attachClient(client);
   saldoBoard.attachClient(client);
+  stickyPanel.attachClient(client);
+  stickyPanel.loadFromSettings();
   gemini.init();
   await sheets.init();
   await saldoBoard.init();
   scheduler.start(client);
 
   notifier.notifySystem({ embeds: [baseEmbed(0x57F287).setTitle('🟢 Bot Online').setDescription(`${client.user.tag} siap dipakai.\nSync Sheets: ${sheets.isReady() ? '✅ aktif' : '⚠️ nonaktif'}\nGemini AI: ${gemini.isReady() ? '✅ aktif' : '⚠️ nonaktif'}`)] });
+});
+
+client.on('messageCreate', (message) => {
+  if (message.author.id === client.user.id && message.embeds[0]?.title === '⚡ Panel Catat Cepat') return;
+  stickyPanel.handleMessageCreate(message);
 });
 
 client.on('interactionCreate', async (interaction) => {
