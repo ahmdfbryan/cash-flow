@@ -5,7 +5,9 @@ let cachedClient = null;
 let panelChannelId = null;
 let panelMessageId = null;
 let repostTimer = null;
+let isBusy = false; // true selama proses kirim/hapus pesan panel lagi jalan
 const REPOST_DEBOUNCE_MS = 1200;
+const BUSY_GRACE_MS = 500; // jeda ekstra setelah selesai kirim, biar event pesan yg baru kita kirim sendiri gak kesenggol
 
 function attachClient(client) {
   cachedClient = client;
@@ -22,7 +24,6 @@ function setSetting(key, value) {
   `).run(key, value);
 }
 
-/** Dipanggil sekali saat bot online, biar tetep inget panel lama abis restart. */
 function loadFromSettings() {
   panelChannelId = getSetting('panel_channel_id');
   panelMessageId = getSetting('panel_message_id');
@@ -31,14 +32,14 @@ function loadFromSettings() {
 function buildPanelPayload() {
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setTitle('⚡ Panel Cash Flow')
-    .setDescription('Bot Discord untuk membantu mencatat dan memantau keuangan pribadi dengan lebih praktis. Digunakan untuk mencatat pemasukan dan pengeluaran, melihat riwayat transaksi, serta memantau kondisi keuangan secara langsung melalui Discord.')
+    .setTitle('⚡ Panel Catat Cepat')
+    .setDescription('Gak perlu ngetik command satu-satu — tinggal klik tombol di bawah, isi form-nya, selesai.')
     .addFields(
       { name: '📥 Catat Masuk', value: 'Pemasukan baru\n(gaji, bonus, jualan, dll)', inline: true },
       { name: '📤 Catat Keluar', value: 'Pengeluaran baru\n(belanja, tagihan, dll)', inline: true },
       { name: '🔄 Transfer', value: 'Pindah saldo\nantar dompet', inline: true },
     )
-    .setFooter({ text: 'Noname Studios Creative' })
+    .setFooter({ text: 'Panel ini otomatis geser ke bawah tiap ada pesan baru di channel ini' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -50,46 +51,64 @@ function buildPanelPayload() {
   return { embeds: [embed], components: [row] };
 }
 
+function releaseBusySoon() {
+  setTimeout(() => { isBusy = false; }, BUSY_GRACE_MS);
+}
+
 /** Dipanggil dari /panel — pasang (atau pindahkan) panel ke channel yang dituju. */
 async function postPanel(channel) {
-  // Kalau sebelumnya ada panel di channel lain, bersihkan dulu biar gak ada yang nyangkut.
-  if (panelChannelId && panelMessageId && panelChannelId !== channel.id) {
-    const oldChannel = await cachedClient.channels.fetch(panelChannelId).catch(() => null);
-    if (oldChannel) {
-      const oldMsg = await oldChannel.messages.fetch(panelMessageId).catch(() => null);
-      if (oldMsg) await oldMsg.delete().catch(() => {});
+  isBusy = true;
+  if (repostTimer) { clearTimeout(repostTimer); repostTimer = null; }
+  try {
+    if (panelChannelId && panelMessageId && panelChannelId !== channel.id) {
+      const oldChannel = await cachedClient.channels.fetch(panelChannelId).catch(() => null);
+      if (oldChannel) {
+        const oldMsg = await oldChannel.messages.fetch(panelMessageId).catch(() => null);
+        if (oldMsg) await oldMsg.delete().catch(() => {});
+      }
     }
-  }
 
-  const sent = await channel.send(buildPanelPayload());
-  panelChannelId = channel.id;
-  panelMessageId = sent.id;
-  setSetting('panel_channel_id', panelChannelId);
-  setSetting('panel_message_id', panelMessageId);
+    const sent = await channel.send(buildPanelPayload());
+    panelChannelId = channel.id;
+    panelMessageId = sent.id;
+    setSetting('panel_channel_id', panelChannelId);
+    setSetting('panel_message_id', panelMessageId);
+  } finally {
+    releaseBusySoon();
+  }
 }
 
 /** Dipanggil dari listener messageCreate di index.js untuk tiap pesan baru. */
 function handleMessageCreate(message) {
   if (!panelChannelId || message.channelId !== panelChannelId) return;
-  if (message.id === panelMessageId) return; // ini panelnya sendiri, abaikan
+  if (isBusy) return; // lagi proses kirim/hapus panel, abaikan dulu sampai selesai
+  if (message.id === panelMessageId) return; // ini pesan panel itu sendiri
 
   if (repostTimer) clearTimeout(repostTimer);
-  repostTimer = setTimeout(() => repost().catch(err => console.error('[StickyPanel] Gagal repost:', err.message)), REPOST_DEBOUNCE_MS);
+  repostTimer = setTimeout(() => {
+    repostTimer = null;
+    repost().catch(err => console.error('[StickyPanel] Gagal repost:', err.message));
+  }, REPOST_DEBOUNCE_MS);
 }
 
 async function repost() {
-  if (!panelChannelId) return;
-  const channel = await cachedClient.channels.fetch(panelChannelId).catch(() => null);
-  if (!channel) return;
+  if (!panelChannelId || isBusy) return;
+  isBusy = true;
+  try {
+    const channel = await cachedClient.channels.fetch(panelChannelId).catch(() => null);
+    if (!channel) return;
 
-  const oldId = panelMessageId;
-  const sent = await channel.send(buildPanelPayload());
-  panelMessageId = sent.id;
-  setSetting('panel_message_id', panelMessageId);
+    const oldId = panelMessageId;
+    const sent = await channel.send(buildPanelPayload());
+    panelMessageId = sent.id;
+    setSetting('panel_message_id', panelMessageId);
 
-  if (oldId) {
-    const oldMsg = await channel.messages.fetch(oldId).catch(() => null);
-    if (oldMsg) await oldMsg.delete().catch(() => {});
+    if (oldId) {
+      const oldMsg = await channel.messages.fetch(oldId).catch(() => null);
+      if (oldMsg) await oldMsg.delete().catch(() => {});
+    }
+  } finally {
+    releaseBusySoon();
   }
 }
 
