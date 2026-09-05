@@ -5,6 +5,7 @@ const sheets = require('./sheetsService');
 const chartService = require('./chartService');
 const notifier = require('./notifier');
 const saldoBoard = require('./saldoBoard');
+const gemini = require('./geminiService');
 const config = require('../config');
 const { formatRupiah } = require('../utils/format');
 
@@ -75,6 +76,12 @@ async function sendPeriodicReport(client, label, dayFilter) {
     ).setTimestamp();
 
   if (byCategory.length > 0) embed.setImage(chartService.pieChartByCategory(byCategory));
+
+  const categorySummary = byCategory.slice(0, 5).map(c => `${c.name}: ${formatRupiah(c.total)}`).join(', ') || 'tidak ada pengeluaran';
+  const prompt = `Kamu asisten keuangan pribadi yang santai dan to the point. Laporan ${label.toLowerCase()} otomatis: pemasukan ${formatRupiah(totalIncome)}, pengeluaran ${formatRupiah(totalExpense)}. Kategori pengeluaran: ${categorySummary}. Tulis 2 kalimat singkat bahasa Indonesia santai mengomentari data ini. Jangan pakai salam pembuka atau frasa generik, langsung ke intinya.`;
+  const narrative = await gemini.generateText(prompt);
+  if (narrative) embed.addFields({ name: '💬 Catatan', value: narrative });
+
   notifier.notifyLaporan({ embeds: [embed] });
 }
 
