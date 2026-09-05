@@ -7,6 +7,7 @@ const scheduler = require('./services/reportScheduler');
 const notifier = require('./services/notifier');
 const saldoBoard = require('./services/saldoBoard');
 const gemini = require('./services/geminiService');
+const panelHandler = require('./services/panelHandler');
 const { errorEmbed, baseEmbed } = require('./utils/embeds');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -35,6 +36,32 @@ client.on('interactionCreate', async (interaction) => {
   if (config.ownerId && interaction.user.id !== config.ownerId) {
     if (interaction.isChatInputCommand()) {
       return interaction.reply({ embeds: [errorEmbed('Akses Ditolak', 'Bot ini khusus untuk pemilik.')], ephemeral: true }).catch(() => {});
+    }
+    return;
+  }
+
+  if (interaction.isButton() && panelHandler.isPanelButton(interaction.customId)) {
+    try {
+      await panelHandler.handleButton(interaction);
+    } catch (err) {
+      console.error('Error di panel button:', err);
+      notifier.notifySystem({ embeds: [errorEmbed('Bot Error', `Panel button: \`${interaction.customId}\`\n\`\`\`${String(err.message).slice(0, 500)}\`\`\``)] });
+    }
+    return;
+  }
+
+  if (interaction.isModalSubmit() && panelHandler.isPanelModal(interaction.customId)) {
+    try {
+      await panelHandler.handleModalSubmit(interaction);
+    } catch (err) {
+      console.error('Error di panel modal:', err);
+      const payload = { embeds: [errorEmbed('Terjadi Kesalahan', 'Ada error saat memproses form. Coba lagi.')], ephemeral: true };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(payload).catch(() => {});
+      } else {
+        await interaction.reply(payload).catch(() => {});
+      }
+      notifier.notifySystem({ embeds: [errorEmbed('Bot Error', `Panel modal: \`${interaction.customId}\`\n\`\`\`${String(err.message).slice(0, 500)}\`\`\``)] });
     }
     return;
   }
