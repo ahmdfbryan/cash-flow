@@ -31,14 +31,14 @@ function loadFromSettings() {
 function buildPanelPayload() {
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setTitle('⚡ Panel Catat Cepat')
-    .setDescription('Gak perlu ngetik command satu-satu — tinggal klik tombol di bawah, isi form-nya, selesai.')
+    .setTitle('⚡ Panel Cash Flow')
+    .setDescription('Bot Discord untuk membantu mencatat dan memantau keuangan pribadi dengan lebih praktis. Digunakan untuk mencatat pemasukan dan pengeluaran, melihat riwayat transaksi, serta memantau kondisi keuangan secara langsung melalui Discord.')
     .addFields(
       { name: '📥 Catat Masuk', value: 'Pemasukan baru\n(gaji, bonus, jualan, dll)', inline: true },
       { name: '📤 Catat Keluar', value: 'Pengeluaran baru\n(belanja, tagihan, dll)', inline: true },
       { name: '🔄 Transfer', value: 'Pindah saldo\nantar dompet', inline: true },
     )
-    .setFooter({ text: 'Panel ini otomatis geser ke bawah tiap ada pesan baru di channel ini' })
+    .setFooter({ text: 'Noname Studios Creative' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
