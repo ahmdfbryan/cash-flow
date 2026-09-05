@@ -35,7 +35,6 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', (message) => {
-  if (message.author.id === client.user.id && message.embeds[0]?.title === '⚡ Panel Catat Cepat') return;
   stickyPanel.handleMessageCreate(message);
 });
 
