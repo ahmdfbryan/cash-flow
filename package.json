@@ -12,6 +12,7 @@
     "pm2:logs": "pm2 logs cashflow-bot"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "better-sqlite3": "^11.3.0",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
